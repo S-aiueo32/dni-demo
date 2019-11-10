@@ -1,0 +1,19 @@
+[[source]]
+name = "pypi"
+url = "https://pypi.org/simple"
+verify_ssl = true
+
+[dev-packages]
+jupyter = "*"
+jupyterlab = "*"
+ipython = "*"
+flake8 = "*"
+
+[packages]
+torch = "==1.3.1"
+torchvision = "==0.4.2"
+googledrivedownloader = "*"
+requests = "*"
+
+[requires]
+python_version = "3.7"
