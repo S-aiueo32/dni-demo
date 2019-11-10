@@ -1,7 +1,7 @@
 # dni-demo
 ## Introduction
 A demonstration of Deep Network Interpolation[1][2] for SR application.
-I use pretrained MSRResNet/MSRGAN provided from [MMSR](https://github.com/open-mmlab/mmsr).
+I use pretrained MSRResNet/MSRGAN provided by [MMSR](https://github.com/open-mmlab/mmsr).
 
 ## Requirements
 - Python 3.7.4
