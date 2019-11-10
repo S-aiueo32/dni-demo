@@ -22,7 +22,7 @@ The interpolation result on Set14[4] `baboon` here!
 
 ![](./outputs/baboon.gif)
 
-# Reference
+## Reference
 1. Wang, Xintao, et al. "Deep network interpolation for continuous imagery effect transition." Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition. 2019.
 1. The original repo by [xinntao](https://github.com/xinntao) - https://github.com/xinntao/DNI
 1. MMSR from Multimedia Laboratory, CUHK.- https://github.com/open-mmlab/mmsr
