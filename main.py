@@ -1,15 +1,19 @@
 from argparse import ArgumentParser
 from collections import OrderedDict
+from math import sqrt
 from pathlib import Path
 
+import cv2
 import numpy as np
+import matplotlib.pyplot as plt
 import torch
 import torchvision.transforms.functional as TF
 from torchvision.utils import save_image
 from google_drive_downloader import GoogleDriveDownloader as gdd
 from PIL import Image, ImageDraw
+from skvideo import measure
 
-from model import MSRResNet
+from model import MSRResNet, RRDBNet
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
@@ -26,34 +30,14 @@ def download_weights(save_dir='./weights'):
         file_id='1c0YNygNMfTLynR-C3y7nsZgaWbczbW5j',
         dest_path=save_dir / 'MSRGANx4.pth'
     )
-
-
-def convert_weights(old_state_dict):
-    new_state_dict = OrderedDict()
-    for key, val in old_state_dict.items():
-        new_key = key
-        if 'conv_first' in new_key:
-            new_key = new_key.replace('conv_first', 'head.0')
-        if 'recon_trunk' in new_key:
-            new_key = new_key.replace('recon_trunk', 'body')
-        if '.conv1.weight' in new_key:
-            new_key = new_key.replace('.conv1.weight', '.body.0.weight')
-        if '.conv1.bias' in new_key:
-            new_key = new_key.replace('.conv1.bias', '.body.0.bias')
-        if '.conv2.weight' in new_key:
-            new_key = new_key.replace('.conv2.weight', '.body.2.weight')
-        if '.conv2.bias' in new_key:
-            new_key = new_key.replace('.conv2.bias', '.body.2.bias')
-        if 'upconv1' in new_key:
-            new_key = new_key.replace('upconv1', 'tail.0')
-        if 'upconv2' in new_key:
-            new_key = new_key.replace('upconv2', 'tail.3')
-        if 'HRconv' in new_key:
-            new_key = new_key.replace('HRconv', 'tail.6')
-        if 'conv_last' in new_key:
-            new_key = new_key.replace('conv_last', 'tail.8')
-        new_state_dict[new_key] = val
-    return new_state_dict
+    gdd.download_file_from_google_drive(
+        file_id='1yWDdoslDhT7G5TmXmCHSOF1c89fSwRb8',
+        dest_path=save_dir / 'RRDB_ESRGAN_x4.pth'
+    )
+    gdd.download_file_from_google_drive(
+        file_id='13fEJuPDCN2meSgWhld6ru4L3-ZoNvGki',
+        dest_path=save_dir / 'RRDB_PSNR_x4.pth'
+    )
 
 
 def interpolate_network(netA, netB, alpha):
@@ -62,6 +46,24 @@ def interpolate_network(netA, netB, alpha):
         v_A, v_B = netA[k], netB[k]
         net_interp[k.replace('module.', '')] = alpha * v_A + (1 - alpha) * v_B
     return net_interp
+
+
+def tensor_to_array(tensor):
+    tensor = tensor.cpu().squeeze(0).permute(1, 2, 0)
+    return (tensor.numpy() * 255).astype('uint8')
+
+
+def compute_metrics(prediction, target):
+    prediction = tensor_to_array(prediction)
+    target = tensor_to_array(target)
+
+    prediction = cv2.cvtColor(prediction, cv2.COLOR_RGB2GRAY)
+    target = cv2.cvtColor(target, cv2.COLOR_RGB2GRAY)
+
+    mse, *_ = measure.mse(target, prediction)
+    niqe, *_ = measure.niqe(prediction)
+
+    return sqrt(mse), niqe
 
 
 def load_image(path):
@@ -81,12 +83,17 @@ def main(args):
 
     download_weights()
 
-    model = MSRResNet().to(device)
-
-    netA = convert_weights(torch.load('./weights/MSRGANx4.pth'))
-    netB = convert_weights(torch.load('./weights/MSRResNetx4.pth'))
+    if args.net == 'msrresnet':
+        model = MSRResNet().to(device)
+        netA = torch.load('./weights/MSRGANx4.pth')
+        netB = torch.load('./weights/MSRResNetx4.pth')
+    if args.net == 'rrdb':
+        model = RRDBNet(3, 3, 64, 23).to(device)
+        netA = torch.load('./weights/RRDB_ESRGAN_x4.pth')
+        netB = torch.load('./weights/RRDB_PSNR_x4.pth')
 
     imgs = []
+    rmse_list, niqe_list = [], []
     for alpha in np.arange(0.0, 1.1, 0.1):
         net_interp = interpolate_network(netA, netB, alpha)
         model.load_state_dict(net_interp)
@@ -95,12 +102,17 @@ def main(args):
             y, x = load_image(args.input)
             y_hat = model(x).clamp(0, 1)
 
+        rmse, niqe = compute_metrics(y_hat, y)
+        rmse_list.append(rmse)
+        niqe_list.append(niqe)
+
         out_name = f'{Path(args.input).stem}_alpha{alpha:.1f}.png'
         save_image(y_hat.squeeze(0), out_dir / out_name)
 
         img = Image.open(out_dir / out_name)
         draw = ImageDraw.Draw(img)
-        draw.text((0, 0), f'alpha = {alpha:.1f}')
+        draw.text(
+            (0, 0), f'alpha = {alpha:.1f}\nRMSE:{rmse:.2f}, NIQE:{niqe:.2f}')
         imgs.append(img)
 
     imgs[0].save(
@@ -111,10 +123,16 @@ def main(args):
         loop=0
     )
 
+    plt.plot(rmse_list, niqe_list, 'x-')
+    plt.xlabel('RMSE')
+    plt.ylabel('NIQE')
+    plt.savefig(out_dir / f'{Path(args.input).stem}_graph.png')
+
 
 if __name__ == "__main__":
     parser = ArgumentParser()
-    parser.add_argument('--input', type=str, default='./data/lenna.png')
+    parser.add_argument('--input', type=str, default='./data/baboon.png')
+    parser.add_argument('--net', default='rrdb', choices=['msrresnet', 'rrdb'])
     args = parser.parse_args()
 
     main(args)

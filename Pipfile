@@ -14,6 +14,10 @@ torch = "==1.3.1"
 torchvision = "==0.4.2"
 googledrivedownloader = "*"
 requests = "*"
+scipy = "==1.2.1"
+scikit-video = "*"
+opencv-python = "*"
+matplotlib = "*"
 
 [requires]
 python_version = "3.7"
